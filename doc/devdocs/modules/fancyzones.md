@@ -325,6 +325,129 @@ All test cases require pre-configured user data and must reset this data before 
 - Focuses on hotkey-related functionality
 - Tests actual hotkey behavior implementation
 
+## Patch Selection and Simulation Workflow
+
+Use this workflow for bug fixing in FancyZones native/runtime paths and Editor paths to ensure fixes are correct for both single-case and multi-case failures.
+
+### 1) Patch units by architecture
+
+Define the patch scope before coding:
+
+- **Core native engine (C++)**: `src/modules/fancyzones/FancyZonesLib/`
+- **Editor crash paths (C#)**: `src/modules/fancyzones/editor/FancyZonesEditor/`
+- **State persistence**:
+  - `FancyZonesData/AppZoneHistory.cpp`
+  - `VirtualDesktop.cpp`
+  - `LastUsedVirtualDesktop.cpp`
+- **Geometry/layout math**:
+  - `WorkArea.cpp`
+  - `Layout.cpp`
+  - `MonitorUtils.cpp`
+  - `util.cpp`
+- **App compatibility/elevation/window routing**:
+  - `WindowUtils.cpp`
+  - `FancyZonesWindowProcessing.cpp`
+  - `FancyZones.cpp`
+
+### 2) Impact graph (single-case vs multi-case)
+
+For each bug, classify and map dependencies:
+
+- **Single-case issue**: one trigger, one flow.
+- **Multi-case issue**: same root cause reproduced by different triggers (for example, DPI + monitor switch + hibernate).
+
+Map every issue into one root-cause bucket:
+
+- crash/stability
+- performance
+- geometry
+- persistence/compat
+
+Link each issue to impacted runtime flows:
+
+- window drag
+- keyboard snap
+- monitor update
+- virtual desktop transition
+- sleep/hibernate resume
+
+### 3) Structured simulation matrix
+
+Run validation against matrix axes:
+
+- OS: Win10, Win11
+- DPI: 100/125/150/mixed
+- Displays: single and multi-monitor
+- Topology changes: dock/undock
+- Power cycles: sleep/hibernate/resume
+- Privilege mismatch: elevated/non-elevated combinations
+- App classes: VS Code, Chrome, Office, Explorer
+
+For each test case capture:
+
+- trigger sequence
+- expected invariant(s)
+- observed breakpoint/failure
+
+Use existing surfaces:
+
+- Native unit tests: `src/modules/fancyzones/FancyZonesTests/UnitTests/`
+- Editor tests: `FancyZonesEditor.UnitTests`, `FancyZonesEditor.UITests`
+- Runtime UI tests: `FancyZones.UITests`
+
+### 4) Weighted patch scoring
+
+Score each candidate patch:
+
+`score = (0.40 * reproEliminationRate) + (0.25 * crossScenarioPassRate) - (0.20 * regressionRisk) - (0.10 * perfCost) - (0.05 * complexityCost)`
+
+Select only the top-scoring candidate that passes:
+
+- single-case validation (target repro)
+- multi-case validation (related bucket scenarios)
+
+### 5) Feedback-loop gates
+
+Apply gates in order:
+
+- **Gate A**: issue-targeted tests pass
+- **Gate B**: same-bucket regression suite pass
+- **Gate C**: cross-bucket smoke test passes (at least one scenario per other bucket)
+
+If a gate fails:
+
+1. mark candidate as rejected,
+2. switch to next-ranked candidate,
+3. rerun Gate A → B → C.
+
+### 6) If/else patch path policy
+
+- If **crash persists** -> prioritize null/invalid-state guards and model consistency.
+- Else if **performance regresses** -> deduplicate/throttle events and reduce work-area rebuild frequency.
+- Else if **geometry fails** -> normalize monitor/work-area/DPI transform and taskbar-offset handling.
+- Else if **persistence fails** -> repair monitor/desktop identity matching and reconciliation.
+- Else if **app compatibility fails** -> refine eligible-window filtering and elevation boundary handling.
+
+### 7) Fix acceptance criteria
+
+- **Issue fixed** only when:
+  - original repro no longer reproduces across matrix subset,
+  - no new failure appears in the same root-cause bucket.
+- **Bucket fixed** only when:
+  - all linked issues pass bucket suite,
+  - repeated runs show stable trend (no reintroduced failures).
+
+### 8) Execution order
+
+Use this sequencing:
+
+1. crash/performance
+2. geometry
+3. persistence
+4. app compatibility
+
+After each merged fix, rerun bucket and cross-bucket loops to catch delayed regressions.
+
 ### UI Testing Tools
 
 While working on tests, you may need tools to view element accessibility data:
@@ -486,4 +609,3 @@ In "FancyZones::MoveSizeUpdate" function.
 While working on tests, you may need a tool that helps you to view the element's accessibility data, e.g. for finding the button to click. For this purpose, you could use [AccessibilityInsights](https://accessibilityinsights.io/docs/windows/overview) or [WinAppDriver UI Recorder](https://github.com/microsoft/WinAppDriver/wiki/WinAppDriver-UI-Recorder).
 
 >Note: close helper tools while running tests. Overlapping windows can affect test results.
-
