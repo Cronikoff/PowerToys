@@ -354,7 +354,7 @@ Define the patch scope before coding:
 For each bug, classify and map dependencies:
 
 - **Single-case issue**: one trigger, one flow.
-- **Multi-case issue**: same root cause reproduced by different triggers (for example DPI + monitor switch + hibernate).
+- **Multi-case issue**: same root cause reproduced by different triggers (for example, DPI + monitor switch + hibernate).
 
 Map every issue into one root-cause bucket:
 
