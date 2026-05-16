@@ -24,6 +24,26 @@ void OutputDebug(const TCHAR* format, ...);
 
 namespace
 {
+    template<size_t N>
+    bool ContainsAnyKeyword( std::wstring const& value, std::array<std::wstring_view, N> const& keywords )
+    {
+        for( auto keyword : keywords )
+        {
+            if( value.find( keyword ) != std::wstring::npos )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::wstring NormalizeForRiskClassification( std::wstring value )
+    {
+        std::transform( value.begin(), value.end(), value.begin(), towlower );
+        return value;
+    }
+
     bool IsLikelyVirtualCaptureDeviceName(std::wstring const& deviceName)
     {
         if (deviceName.empty())
@@ -31,8 +51,7 @@ namespace
             return false;
         }
 
-        std::wstring normalizedName = deviceName;
-        std::transform(normalizedName.begin(), normalizedName.end(), normalizedName.begin(), towlower);
+        std::wstring normalizedName = NormalizeForRiskClassification( deviceName );
 
         static constexpr std::array<std::wstring_view, 7> suspiciousKeywords = {
             L"virtual",
@@ -44,15 +63,24 @@ namespace
             L"xsplit"
         };
 
-        for (auto keyword : suspiciousKeywords)
-        {
-            if (normalizedName.find(keyword) != std::wstring::npos)
-            {
-                return true;
-            }
-        }
+        return ContainsAnyKeyword( normalizedName, suspiciousKeywords );
+    }
 
-        return false;
+    bool IsLikelyHarmfulCaptureDriver( std::wstring const& deviceName, std::wstring const& deviceSymLink )
+    {
+        std::wstring classifierInput = NormalizeForRiskClassification( deviceName + L" " + deviceSymLink );
+        static constexpr std::array<std::wstring_view, 8> harmfulKeywords = {
+            L"malware",
+            L"rootkit",
+            L"inject",
+            L"spyware",
+            L"keylog",
+            L"mitm",
+            L"man-in-the-middle",
+            L"exploit"
+        };
+
+        return ContainsAnyKeyword( classifierInput, harmfulKeywords );
     }
 }
 
@@ -155,6 +183,7 @@ bool WebcamCapture::InitSourceReader()
         }
     }
 
+    std::wstring selectedDeviceName;
     WCHAR* friendlyName = nullptr;
     UINT32 friendlyNameLen = 0;
     if( SUCCEEDED( ppDevices[deviceIndex]->GetAllocatedString(
@@ -162,12 +191,36 @@ bool WebcamCapture::InitSourceReader()
         &friendlyName,
         &friendlyNameLen ) ) )
     {
-        std::wstring selectedDeviceName( friendlyName );
+        selectedDeviceName.assign( friendlyName );
         CoTaskMemFree( friendlyName );
-        if( IsLikelyVirtualCaptureDeviceName( selectedDeviceName ) )
+    }
+
+    std::wstring selectedDeviceSymLink;
+    WCHAR* selectedSymLink = nullptr;
+    UINT32 selectedSymLinkLen = 0;
+    if( SUCCEEDED( ppDevices[deviceIndex]->GetAllocatedString(
+        MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,
+        &selectedSymLink,
+        &selectedSymLinkLen ) ) )
+    {
+        selectedDeviceSymLink.assign( selectedSymLink );
+        CoTaskMemFree( selectedSymLink );
+    }
+
+    if( IsLikelyHarmfulCaptureDriver( selectedDeviceName, selectedDeviceSymLink ) )
+    {
+        OutputDebug( L"[WebcamCapture] WARNING: Selected camera blocked by risk policy classification\n" );
+        for( UINT32 i = 0; i < count; i++ )
         {
-            OutputDebug( L"[WebcamCapture] WARNING: Selected camera appears to be virtual/software-based\n" );
+            ppDevices[i]->Release();
         }
+        CoTaskMemFree( ppDevices );
+        return false;
+    }
+
+    if( IsLikelyVirtualCaptureDeviceName( selectedDeviceName ) )
+    {
+        OutputDebug( L"[WebcamCapture] WARNING: Selected camera appears to be virtual/software-based\n" );
     }
 
     winrt::com_ptr<IMFMediaSource> mediaSource;

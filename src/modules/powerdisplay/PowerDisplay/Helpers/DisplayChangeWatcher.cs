@@ -128,6 +128,23 @@ public sealed partial class DisplayChangeWatcher : IDisposable
             || displayName.Contains("indirect", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsBlockedDisplayName(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return false;
+        }
+
+        return displayName.Contains("malware", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("rootkit", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("inject", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("spyware", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("keylog", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("mitm", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("man-in-the-middle", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("exploit", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args)
     {
         // Dispatch to UI thread to ensure thread-safe state access
@@ -136,6 +153,12 @@ public sealed partial class DisplayChangeWatcher : IDisposable
             // Ignore events during initial enumeration or after disposal
             if (_disposed || !_initialEnumerationComplete)
             {
+                return;
+            }
+
+            if (IsBlockedDisplayName(args.Name))
+            {
+                Logger.LogError("[DisplayChangeWatcher] Display device blocked by risk policy classification");
                 return;
             }
 
