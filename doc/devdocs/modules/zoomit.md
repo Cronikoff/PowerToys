@@ -219,7 +219,7 @@ inside anonymous namespaces in both source files and is **not exposed as a publi
 
 | Check | Keywords | Action |
 |-------|----------|--------|
-| Harmful audio device | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | Preferred microphone blocked; system default used instead. A `OutputDebugString` warning is emitted. |
+| Harmful audio device | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | Preferred microphone blocked; system default used instead. An `OutputDebugString` warning is emitted. |
 | Harmful webcam driver | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | `WebcamCapture::InitSourceReader` returns `false`; no capture session is started. |
 | Virtual webcam | `virtual`, `obs`, `ndi`, `manycam`, `snap camera`, `splitcam`, `xsplit` | Capture proceeds; a debug warning is logged. |
 
