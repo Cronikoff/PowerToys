@@ -192,3 +192,46 @@ The PowerToys repository serves as the source of truth for both PowerToys and Sy
 - Common library repo: `https://dev.azure.com/sysinternals/Tools/_git/Common`
 
 The integration process can be tracked through [PR #35880](https://github.com/microsoft/PowerToys/pull/35880) which contains the complete history of changes required to properly integrate ZoomIt.
+
+## Capture Device Security Filtering
+
+ZoomIt can record screen activity with an optional microphone track (`AudioSampleGenerator.cpp`)
+and overlay a live webcam feed (`WebcamCapture.cpp`). Both capture paths include a
+lightweight, defense-in-depth device classification layer that guards against malicious
+or misconfigured capture drivers.
+
+### How It Works
+
+Before activating a capture device, ZoomIt evaluates the device's friendly name (and,
+for audio devices, its device ID) against two keyword lists. The check is performed
+inside anonymous namespaces in both source files and is **not exposed as a public API**
+(unlike `DisplayNameRiskClassifier` in PowerDisplay).
+
+**Helper functions (both files):**
+
+| Function | File | Purpose |
+|----------|------|---------|
+| `IsLikelyHarmfulAudioDevice` | `AudioSampleGenerator.cpp` | Checks microphone name + ID for harmful keywords |
+| `IsLikelyHarmfulCaptureDriver` | `WebcamCapture.cpp` | Checks webcam name + symlink for harmful keywords |
+| `IsLikelyVirtualCaptureDeviceName` | `WebcamCapture.cpp` | Checks webcam name for virtual-device keywords |
+
+**Keyword tables:**
+
+| Check | Keywords | Action |
+|-------|----------|--------|
+| Harmful audio device | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | Preferred microphone blocked; system default used instead. A `OutputDebugString` warning is emitted. |
+| Harmful webcam driver | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | `WebcamCapture::InitSourceReader` returns `false`; no capture session is started. |
+| Virtual webcam | `virtual`, `obs`, `ndi`, `manycam`, `snap camera`, `splitcam`, `xsplit` | Capture proceeds; a debug warning is logged. |
+
+Comparisons are case-insensitive (string is lowercased before matching).
+
+### Microphone Selection Fallback (`AudioSampleGenerator`)
+
+When the user-configured microphone is unavailable, disabled, or blocked:
+
+1. **Blocked by risk policy** — system default microphone is used and a risk-policy warning is written to the debug log.
+2. **Unavailable / disabled** — system default microphone is used and an availability warning is written.
+3. **Initialization failure** — if the preferred microphone fails to open even though it passed the risk check, ZoomIt falls back to the system default microphone and logs a separate warning.
+
+This fallback chain ensures recording continues even when the preferred device cannot be used, while still preventing activation of devices that match the harmful keyword set.
+
