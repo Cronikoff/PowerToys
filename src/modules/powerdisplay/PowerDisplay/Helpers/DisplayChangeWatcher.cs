@@ -126,6 +126,7 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
+            Logger.LogInfo($"[DisplayChangeWatcher] Display device connected: {args.Name}");
             ScheduleDisplayChanged();
         });
     }
@@ -141,6 +142,7 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
+            Logger.LogInfo("[DisplayChangeWatcher] Display device disconnected");
             ScheduleDisplayChanged();
         });
     }

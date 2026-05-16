@@ -91,6 +91,7 @@ bool WebcamCapture::InitSourceReader()
 
     // Find matching device by symlink, or use the first one.
     UINT32 deviceIndex = 0;
+    bool deviceMatched = false;
     if( !m_deviceSymLink.empty() )
     {
         for( UINT32 i = 0; i < count; i++ )
@@ -102,9 +103,19 @@ bool WebcamCapture::InitSourceReader()
                     &symLink, &symLinkLen ) ) )
             {
                 if( _wcsicmp( symLink, m_deviceSymLink.c_str() ) == 0 )
+                {
                     deviceIndex = i;
+                    deviceMatched = true;
+                }
                 CoTaskMemFree( symLink );
             }
+        }
+        if( !deviceMatched )
+        {
+            // The stored webcam symlink did not match any currently enumerated device.
+            // Recording will use the first available camera instead of the configured device.
+            OutputDebug( L"[WebcamCapture] WARNING: Preferred camera device not found in enumeration; "
+                         L"falling back to first available device\n" );
         }
     }
 

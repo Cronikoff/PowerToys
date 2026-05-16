@@ -663,6 +663,21 @@ private:
                 SetTimer(hwnd, TIMER_UPDATE_MONITORS, DEBOUNCE_DELAY_MS, nullptr);
                 return TRUE;
             }
+            else if (wParam == DBT_DEVICEARRIVAL || wParam == DBT_DEVICEREMOVECOMPLETE)
+            {
+                // These are fired for the specific registered GUID_DEVINTERFACE_MONITOR interface.
+                // Check that lParam describes a device-interface notification before acting.
+                auto* pHdr = reinterpret_cast<DEV_BROADCAST_HDR*>(lParam);
+                if (pHdr && pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE)
+                {
+                    const bool isArrival = (wParam == DBT_DEVICEARRIVAL);
+                    Logger::info(isArrival ? "Monitor interface arrived (DBT_DEVICEARRIVAL)"
+                                           : "Monitor interface removed (DBT_DEVICEREMOVECOMPLETE)");
+                    // Debounce: Wait for multiple rapid connect/disconnect events to settle
+                    KillTimer(hwnd, TIMER_UPDATE_MONITORS);
+                    SetTimer(hwnd, TIMER_UPDATE_MONITORS, DEBOUNCE_DELAY_MS, nullptr);
+                }
+            }
             break;
 
         case WM_TIMER:

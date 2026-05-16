@@ -129,7 +129,11 @@ winrt::IAsyncAction AudioSampleGenerator::InitializeAsync()
                 auto inputNodeResult = co_await m_audioGraph.CreateDeviceInputNodeAsync(winrt::MediaCategory::Media, m_audioGraph.EncodingProperties(), microphone);
                 if (inputNodeResult.Status() != winrt::AudioDeviceNodeCreationStatus::Success && microphoneId != defaultMicrophoneId)
                 {
-                    // If the selected microphone failed, try again with the default
+                    // The user-selected microphone device failed to open.  Recording will continue using
+                    // the system default microphone instead of the configured device.  This is an explicit
+                    // fallback — the user may not realise a different device is being recorded.
+                    OutputDebugStringA("WARNING: [AudioSampleGenerator] Preferred microphone device failed to initialize; "
+                                       "falling back to system default microphone.\n");
                     microphone = co_await winrt::DeviceInformation::CreateFromIdAsync(defaultMicrophoneId);
                     inputNodeResult = co_await m_audioGraph.CreateDeviceInputNodeAsync(winrt::MediaCategory::Media, m_audioGraph.EncodingProperties(), microphone);
                 }
