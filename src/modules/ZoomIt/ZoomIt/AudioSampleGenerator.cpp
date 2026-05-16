@@ -118,9 +118,33 @@ winrt::IAsyncAction AudioSampleGenerator::InitializeAsync()
         // When mic capture is disabled, we mute it so only loopback audio is captured.
         {
             auto defaultMicrophoneId = winrt::MediaDevice::GetDefaultAudioCaptureId(winrt::AudioDeviceRole::Default);
-            auto microphoneId = (m_captureMicrophone && g_MicrophoneDeviceId[0] != 0)
-                ? winrt::to_hstring(g_MicrophoneDeviceId)
-                : defaultMicrophoneId;
+            auto microphoneId = defaultMicrophoneId;
+            if (m_captureMicrophone && g_MicrophoneDeviceId[0] != 0)
+            {
+                auto preferredMicrophoneId = winrt::to_hstring(g_MicrophoneDeviceId);
+                bool preferredMicrophoneFound = false;
+                bool preferredMicrophoneEnabled = false;
+                auto microphones = co_await winrt::DeviceInformation::FindAllAsync(winrt::DeviceClass::AudioCapture);
+                for (auto const& microphoneInfo : microphones)
+                {
+                    if (_wcsicmp(microphoneInfo.Id().c_str(), preferredMicrophoneId.c_str()) == 0)
+                    {
+                        preferredMicrophoneFound = true;
+                        preferredMicrophoneEnabled = microphoneInfo.IsEnabled();
+                        break;
+                    }
+                }
+
+                if (preferredMicrophoneFound && preferredMicrophoneEnabled)
+                {
+                    microphoneId = preferredMicrophoneId;
+                }
+                else
+                {
+                    OutputDebugStringA("WARNING: [AudioSampleGenerator] Preferred microphone device is unavailable or disabled; "
+                                       "using system default microphone.\n");
+                }
+            }
             if (!microphoneId.empty())
             {
                 auto microphone = co_await winrt::DeviceInformation::CreateFromIdAsync(microphoneId);

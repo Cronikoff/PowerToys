@@ -11,6 +11,8 @@
 //==============================================================================
 #include "pch.h"
 #include "WebcamCapture.h"
+#include <array>
+#include <string_view>
 
 // Defined in Zoomit.cpp; compiles to nothing in Release builds.
 void OutputDebug(const TCHAR* format, ...);
@@ -19,6 +21,40 @@ void OutputDebug(const TCHAR* format, ...);
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
+
+namespace
+{
+    bool IsLikelyVirtualCaptureDeviceName(std::wstring const& deviceName)
+    {
+        if (deviceName.empty())
+        {
+            return false;
+        }
+
+        std::wstring normalizedName = deviceName;
+        std::transform(normalizedName.begin(), normalizedName.end(), normalizedName.begin(), towlower);
+
+        static constexpr std::array<std::wstring_view, 7> suspiciousKeywords = {
+            L"virtual",
+            L"obs",
+            L"ndi",
+            L"manycam",
+            L"snap camera",
+            L"splitcam",
+            L"xsplit"
+        };
+
+        for (auto keyword : suspiciousKeywords)
+        {
+            if (normalizedName.find(keyword) != std::wstring::npos)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
 
 //----------------------------------------------------------------------------
 // WebcamCapture::WebcamCapture
@@ -116,6 +152,21 @@ bool WebcamCapture::InitSourceReader()
             // Recording will use the first available camera instead of the configured device.
             OutputDebug( L"[WebcamCapture] WARNING: Preferred camera device not found in enumeration; "
                          L"falling back to first available device\n" );
+        }
+    }
+
+    WCHAR* friendlyName = nullptr;
+    UINT32 friendlyNameLen = 0;
+    if( SUCCEEDED( ppDevices[deviceIndex]->GetAllocatedString(
+        MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+        &friendlyName,
+        &friendlyNameLen ) ) )
+    {
+        std::wstring selectedDeviceName( friendlyName );
+        CoTaskMemFree( friendlyName );
+        if( IsLikelyVirtualCaptureDeviceName( selectedDeviceName ) )
+        {
+            OutputDebug( L"[WebcamCapture] WARNING: Selected camera appears to be virtual/software-based\n" );
         }
     }
 

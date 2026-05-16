@@ -115,6 +115,19 @@ public sealed partial class DisplayChangeWatcher : IDisposable
         }
     }
 
+    private static bool IsSuspiciousDisplayName(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return false;
+        }
+
+        return displayName.Contains("virtual", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("remote", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("rdp", StringComparison.OrdinalIgnoreCase)
+            || displayName.Contains("indirect", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args)
     {
         // Dispatch to UI thread to ensure thread-safe state access
@@ -126,7 +139,15 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
-            Logger.LogInfo($"[DisplayChangeWatcher] Display device connected: {args.Name}");
+            if (IsSuspiciousDisplayName(args.Name))
+            {
+                Logger.LogWarning("[DisplayChangeWatcher] Display device connected with suspicious classification (virtual/remote)");
+            }
+            else
+            {
+                Logger.LogInfo("[DisplayChangeWatcher] Display device connected");
+            }
+
             ScheduleDisplayChanged();
         });
     }
