@@ -72,17 +72,26 @@ namespace Microsoft.PowerToys.Settings.UI.ViewModels
             var storedMic = _zoomItSettings.Properties.MicrophoneDeviceId.Value;
             if (!string.IsNullOrEmpty(storedMic))
             {
+                var foundStoredMic = false;
                 foreach (var entry in MicrophoneList)
                 {
                     if (string.Equals(entry.Item1, storedMic, StringComparison.OrdinalIgnoreCase))
                     {
+                        foundStoredMic = true;
                         if (entry.Item1 != storedMic)
                         {
                             _zoomItSettings.Properties.MicrophoneDeviceId.Value = entry.Item1;
+                            NotifySettingsChanged();
                         }
 
                         break;
                     }
+                }
+
+                if (!foundStoredMic)
+                {
+                    _zoomItSettings.Properties.MicrophoneDeviceId.Value = string.Empty;
+                    NotifySettingsChanged();
                 }
             }
 
@@ -106,17 +115,26 @@ namespace Microsoft.PowerToys.Settings.UI.ViewModels
             var storedCam = _zoomItSettings.Properties.WebcamDeviceSymLink.Value;
             if (!string.IsNullOrEmpty(storedCam))
             {
+                var foundStoredCam = false;
                 foreach (var entry in WebcamList)
                 {
                     if (string.Equals(entry.Item1, storedCam, StringComparison.OrdinalIgnoreCase))
                     {
+                        foundStoredCam = true;
                         if (entry.Item1 != storedCam)
                         {
                             _zoomItSettings.Properties.WebcamDeviceSymLink.Value = entry.Item1;
+                            NotifySettingsChanged();
                         }
 
                         break;
                     }
+                }
+
+                if (!foundStoredCam)
+                {
+                    _zoomItSettings.Properties.WebcamDeviceSymLink.Value = string.Empty;
+                    NotifySettingsChanged();
                 }
             }
 

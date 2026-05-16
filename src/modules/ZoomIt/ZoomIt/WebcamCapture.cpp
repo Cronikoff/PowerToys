@@ -11,6 +11,8 @@
 //==============================================================================
 #include "pch.h"
 #include "WebcamCapture.h"
+#include <array>
+#include <string_view>
 
 // Defined in Zoomit.cpp; compiles to nothing in Release builds.
 void OutputDebug(const TCHAR* format, ...);
@@ -19,6 +21,68 @@ void OutputDebug(const TCHAR* format, ...);
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
+
+namespace
+{
+    template<size_t N>
+    bool ContainsAnyKeyword( std::wstring const& value, std::array<std::wstring_view, N> const& keywords )
+    {
+        for( auto keyword : keywords )
+        {
+            if( value.find( keyword ) != std::wstring::npos )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::wstring NormalizeForRiskClassification( std::wstring value )
+    {
+        std::transform( value.begin(), value.end(), value.begin(), towlower );
+        return value;
+    }
+
+    bool IsLikelyVirtualCaptureDeviceName(std::wstring const& deviceName)
+    {
+        if (deviceName.empty())
+        {
+            return false;
+        }
+
+        std::wstring normalizedName = NormalizeForRiskClassification( deviceName );
+
+        static constexpr std::array<std::wstring_view, 7> suspiciousKeywords = {
+            L"virtual",
+            L"obs",
+            L"ndi",
+            L"manycam",
+            L"snap camera",
+            L"splitcam",
+            L"xsplit"
+        };
+
+        return ContainsAnyKeyword( normalizedName, suspiciousKeywords );
+    }
+
+    bool IsLikelyHarmfulCaptureDriver( std::wstring const& deviceName, std::wstring const& deviceSymLink )
+    {
+        std::wstring classifierInput = NormalizeForRiskClassification( deviceName + L" " + deviceSymLink );
+        static constexpr std::array<std::wstring_view, 8> harmfulKeywords = {
+            L"malware",
+            L"rootkit",
+            L"inject",
+            L"spyware",
+            L"keylog",
+            L"mitm",
+            L"man-in-the-middle",
+            L"exploit"
+        };
+
+        return ContainsAnyKeyword( classifierInput, harmfulKeywords );
+    }
+}
 
 //----------------------------------------------------------------------------
 // WebcamCapture::WebcamCapture
@@ -91,6 +155,7 @@ bool WebcamCapture::InitSourceReader()
 
     // Find matching device by symlink, or use the first one.
     UINT32 deviceIndex = 0;
+    bool deviceMatched = false;
     if( !m_deviceSymLink.empty() )
     {
         for( UINT32 i = 0; i < count; i++ )
@@ -102,10 +167,60 @@ bool WebcamCapture::InitSourceReader()
                     &symLink, &symLinkLen ) ) )
             {
                 if( _wcsicmp( symLink, m_deviceSymLink.c_str() ) == 0 )
+                {
                     deviceIndex = i;
+                    deviceMatched = true;
+                }
                 CoTaskMemFree( symLink );
             }
         }
+        if( !deviceMatched )
+        {
+            // The stored webcam symlink did not match any currently enumerated device.
+            // Recording will use the first available camera instead of the configured device.
+            OutputDebug( L"[WebcamCapture] WARNING: Preferred camera device not found in enumeration; "
+                         L"falling back to first available device\n" );
+        }
+    }
+
+    std::wstring selectedDeviceName;
+    WCHAR* friendlyName = nullptr;
+    UINT32 friendlyNameLen = 0;
+    if( SUCCEEDED( ppDevices[deviceIndex]->GetAllocatedString(
+        MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+        &friendlyName,
+        &friendlyNameLen ) ) )
+    {
+        selectedDeviceName.assign( friendlyName );
+        CoTaskMemFree( friendlyName );
+    }
+
+    std::wstring selectedDeviceSymLink;
+    WCHAR* selectedSymLink = nullptr;
+    UINT32 selectedSymLinkLen = 0;
+    if( SUCCEEDED( ppDevices[deviceIndex]->GetAllocatedString(
+        MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,
+        &selectedSymLink,
+        &selectedSymLinkLen ) ) )
+    {
+        selectedDeviceSymLink.assign( selectedSymLink );
+        CoTaskMemFree( selectedSymLink );
+    }
+
+    if( IsLikelyHarmfulCaptureDriver( selectedDeviceName, selectedDeviceSymLink ) )
+    {
+        OutputDebug( L"[WebcamCapture] WARNING: Selected camera blocked by risk policy classification\n" );
+        for( UINT32 i = 0; i < count; i++ )
+        {
+            ppDevices[i]->Release();
+        }
+        CoTaskMemFree( ppDevices );
+        return false;
+    }
+
+    if( IsLikelyVirtualCaptureDeviceName( selectedDeviceName ) )
+    {
+        OutputDebug( L"[WebcamCapture] WARNING: Selected camera appears to be virtual/software-based\n" );
     }
 
     winrt::com_ptr<IMFMediaSource> mediaSource;

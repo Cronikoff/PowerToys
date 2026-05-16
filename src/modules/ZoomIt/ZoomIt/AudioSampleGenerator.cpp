@@ -2,12 +2,52 @@
 #include "AudioSampleGenerator.h"
 #include "CaptureFrameWait.h"
 #include "LoopbackCapture.h"
+#include <array>
+#include <string_view>
 #include <wrl/client.h>
 
 extern TCHAR g_MicrophoneDeviceId[];
 
 namespace
 {
+    template<size_t N>
+    bool ContainsAnyKeyword(std::wstring const& value, std::array<std::wstring_view, N> const& keywords)
+    {
+        for (auto keyword : keywords)
+        {
+            if (value.find(keyword) != std::wstring::npos)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::wstring NormalizeForRiskClassification(std::wstring value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), towlower);
+        return value;
+    }
+
+    bool IsLikelyHarmfulAudioDevice(winrt::hstring const& deviceName, winrt::hstring const& deviceId)
+    {
+        std::wstring classifierInput = NormalizeForRiskClassification(
+            std::wstring(deviceName.c_str()) + L" " + std::wstring(deviceId.c_str()));
+        static constexpr std::array<std::wstring_view, 8> harmfulKeywords = {
+            L"malware",
+            L"rootkit",
+            L"inject",
+            L"spyware",
+            L"keylog",
+            L"mitm",
+            L"man-in-the-middle",
+            L"exploit"
+        };
+
+        return ContainsAnyKeyword(classifierInput, harmfulKeywords);
+    }
+
     // Declare the IMemoryBufferByteAccess interface for accessing raw buffer data
     MIDL_INTERFACE("5b0d3235-4dba-4d44-8657-1f1d0f83e9a3")
     IMemoryBufferByteAccess : public IUnknown
@@ -118,9 +158,43 @@ winrt::IAsyncAction AudioSampleGenerator::InitializeAsync()
         // When mic capture is disabled, we mute it so only loopback audio is captured.
         {
             auto defaultMicrophoneId = winrt::MediaDevice::GetDefaultAudioCaptureId(winrt::AudioDeviceRole::Default);
-            auto microphoneId = (m_captureMicrophone && g_MicrophoneDeviceId[0] != 0)
-                ? winrt::to_hstring(g_MicrophoneDeviceId)
-                : defaultMicrophoneId;
+            auto microphoneId = defaultMicrophoneId;
+            if (m_captureMicrophone && g_MicrophoneDeviceId[0] != 0)
+            {
+                auto preferredMicrophoneId = winrt::to_hstring(g_MicrophoneDeviceId);
+                bool preferredMicrophoneFound = false;
+                bool preferredMicrophoneEnabled = false;
+                bool preferredMicrophoneBlocked = false;
+                auto microphones = co_await winrt::DeviceInformation::FindAllAsync(winrt::DeviceClass::AudioCapture);
+                for (auto const& microphoneInfo : microphones)
+                {
+                    if (_wcsicmp(microphoneInfo.Id().c_str(), preferredMicrophoneId.c_str()) == 0)
+                    {
+                        preferredMicrophoneFound = true;
+                        preferredMicrophoneEnabled = microphoneInfo.IsEnabled();
+                        preferredMicrophoneBlocked = IsLikelyHarmfulAudioDevice(microphoneInfo.Name(), microphoneInfo.Id());
+                        break;
+                    }
+                }
+
+                if (preferredMicrophoneFound && preferredMicrophoneEnabled && !preferredMicrophoneBlocked)
+                {
+                    microphoneId = preferredMicrophoneId;
+                }
+                else
+                {
+                    if (preferredMicrophoneBlocked)
+                    {
+                        OutputDebugStringA("WARNING: [AudioSampleGenerator] Preferred microphone blocked by risk policy classification; "
+                                           "using system default microphone.\n");
+                    }
+                    else
+                    {
+                        OutputDebugStringA("WARNING: [AudioSampleGenerator] Preferred microphone device is unavailable or disabled; "
+                                           "using system default microphone.\n");
+                    }
+                }
+            }
             if (!microphoneId.empty())
             {
                 auto microphone = co_await winrt::DeviceInformation::CreateFromIdAsync(microphoneId);
@@ -129,7 +203,11 @@ winrt::IAsyncAction AudioSampleGenerator::InitializeAsync()
                 auto inputNodeResult = co_await m_audioGraph.CreateDeviceInputNodeAsync(winrt::MediaCategory::Media, m_audioGraph.EncodingProperties(), microphone);
                 if (inputNodeResult.Status() != winrt::AudioDeviceNodeCreationStatus::Success && microphoneId != defaultMicrophoneId)
                 {
-                    // If the selected microphone failed, try again with the default
+                    // The user-selected microphone device failed to open.  Recording will continue using
+                    // the system default microphone instead of the configured device.  This is an explicit
+                    // fallback — the user may not realise a different device is being recorded.
+                    OutputDebugStringA("WARNING: [AudioSampleGenerator] Preferred microphone device failed to initialize; "
+                                       "falling back to system default microphone.\n");
                     microphone = co_await winrt::DeviceInformation::CreateFromIdAsync(defaultMicrophoneId);
                     inputNodeResult = co_await m_audioGraph.CreateDeviceInputNodeAsync(winrt::MediaCategory::Media, m_audioGraph.EncodingProperties(), microphone);
                 }

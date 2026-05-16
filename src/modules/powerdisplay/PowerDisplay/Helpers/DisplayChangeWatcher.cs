@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using ManagedCommon;
 using Microsoft.UI.Dispatching;
 using Microsoft.Win32;
+using PowerDisplay.Common.Drivers;
 using Windows.Devices.Display;
 using Windows.Devices.Enumeration;
 
@@ -126,6 +127,21 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
+            if (DisplayNameRiskClassifier.IsBlocked(args.Name))
+            {
+                Logger.LogError("[DisplayChangeWatcher] Display device blocked by risk policy classification");
+                return;
+            }
+
+            if (DisplayNameRiskClassifier.IsSuspicious(args.Name))
+            {
+                Logger.LogWarning("[DisplayChangeWatcher] Display device connected with suspicious classification (virtual/remote)");
+            }
+            else
+            {
+                Logger.LogInfo("[DisplayChangeWatcher] Display device connected");
+            }
+
             ScheduleDisplayChanged();
         });
     }
@@ -141,6 +157,7 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
+            Logger.LogInfo("[DisplayChangeWatcher] Display device disconnected");
             ScheduleDisplayChanged();
         });
     }

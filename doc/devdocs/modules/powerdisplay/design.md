@@ -14,6 +14,7 @@
 6. [Component Design](#component-design)
    - [PowerDisplay Module Internal Structure](#powerdisplay-module-internal-structure)
    - [DisplayChangeWatcher - Monitor Hot-Plug Detection](#displaychangewatcher---monitor-hot-plug-detection)
+   - [DisplayNameRiskClassifier - Display Device Security Filtering](#displaynameriskclassifier---display-device-security-filtering)
    - [DDC/CI and WMI Interaction Architecture](#ddcci-and-wmi-interaction-architecture)
    - [IMonitorController Interface Methods](#imonitorcontroller-interface-methods)
    - [Why WmiLight Instead of System.Management](#why-wmilight-instead-of-systemmanagement)
@@ -390,6 +391,7 @@ The `DisplayChangeWatcher` component provides automatic detection of monitor con
 - Implements 1-second debouncing to coalesce rapid connect/disconnect events
 - Triggers `DisplayChanged` event to notify `MainViewModel` for monitor list refresh
 - Runs continuously after initial monitor discovery completes
+- Delegates display name risk classification to `DisplayNameRiskClassifier` before processing `DeviceAdded` events
 
 **Implementation Details:**
 ```csharp
@@ -403,12 +405,70 @@ _deviceWatcher.Removed += OnDeviceRemoved;  // Monitor disconnected
 _deviceWatcher.Updated += OnDeviceUpdated;  // Monitor properties changed
 ```
 
+**Security Filtering in `OnDeviceAdded`:**
+
+Before scheduling a `DisplayChanged` event for a newly connected monitor, the watcher
+consults `DisplayNameRiskClassifier`:
+
+| Classification | Keywords | Action |
+|----------------|----------|--------|
+| **Blocked** | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` | Event is dropped; an error is logged. No `DisplayChanged` is fired. |
+| **Suspicious** | `virtual`, `remote`, `rdp`, `indirect` | Event proceeds normally; a warning is logged. |
+| **Clean** | (none of the above) | Event proceeds normally; an info message is logged. |
+
 **Debouncing Strategy:**
 - Each device change event schedules a `DisplayChanged` event after 1 second
 - Subsequent events within the debounce window cancel the previous timer
 - This prevents excessive refreshes when multiple monitors change simultaneously
 
 ---
+
+### DisplayNameRiskClassifier - Display Device Security Filtering
+
+`DisplayNameRiskClassifier` (`PowerDisplay.Lib/Drivers/DisplayNameRiskClassifier.cs`) is a
+pure-function static helper that classifies display device names into three risk tiers.
+It follows the same library-layer pattern as `DisplayClassifier` (output technology ↔
+internal/external classification).
+
+**Why keyword matching on device names?**
+
+Windows' `DeviceWatcher` delivers a `DeviceInformation` object whose `Name` property
+comes directly from the device stack. Malicious or misconfigured capture drivers have
+historically included keywords such as `inject` or `keylog` in their friendly names.
+Blocking these names is a lightweight, zero-dependency defense-in-depth measure.
+
+**API:**
+
+```csharp
+/// Returns true when the name contains a virtual/remote-adapter keyword.
+/// These devices are not blocked; callers may choose to warn the user.
+bool DisplayNameRiskClassifier.IsSuspicious(string? displayName);
+
+/// Returns true when the name contains a keyword strongly associated with
+/// malicious software. Callers should refuse to process such devices.
+bool DisplayNameRiskClassifier.IsBlocked(string? displayName);
+```
+
+Both methods return `false` for `null`, empty, or whitespace-only input.
+Comparisons are case-insensitive.
+
+**Keyword tables:**
+
+| Method | Keywords |
+|--------|----------|
+| `IsSuspicious` | `virtual`, `remote`, `rdp`, `indirect` |
+| `IsBlocked` | `malware`, `rootkit`, `inject`, `spyware`, `keylog`, `mitm`, `man-in-the-middle`, `exploit` |
+
+**Testing:**
+
+`DisplayNameRiskClassifierTests` in `PowerDisplay.Lib.UnitTests` covers:
+- All blocked keywords, case-insensitive
+- All suspicious keywords, case-insensitive
+- `null`, empty, and whitespace inputs (expect `false` in both methods)
+- Normal monitor names (expect `false` in both methods)
+- Cross-property assertions: a blocked name is not automatically suspicious and vice-versa
+
+
 
 ### DDC/CI and WMI Interaction Architecture
 
