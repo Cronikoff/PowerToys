@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using ManagedCommon;
 using Microsoft.UI.Dispatching;
 using Microsoft.Win32;
+using PowerDisplay.Common.Drivers;
 using Windows.Devices.Display;
 using Windows.Devices.Enumeration;
 
@@ -115,36 +116,6 @@ public sealed partial class DisplayChangeWatcher : IDisposable
         }
     }
 
-    private static bool IsSuspiciousDisplayName(string? displayName)
-    {
-        if (string.IsNullOrWhiteSpace(displayName))
-        {
-            return false;
-        }
-
-        return displayName.Contains("virtual", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("remote", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("rdp", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("indirect", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsBlockedDisplayName(string? displayName)
-    {
-        if (string.IsNullOrWhiteSpace(displayName))
-        {
-            return false;
-        }
-
-        return displayName.Contains("malware", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("rootkit", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("inject", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("spyware", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("keylog", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("mitm", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("man-in-the-middle", StringComparison.OrdinalIgnoreCase)
-            || displayName.Contains("exploit", StringComparison.OrdinalIgnoreCase);
-    }
-
     private void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args)
     {
         // Dispatch to UI thread to ensure thread-safe state access
@@ -156,13 +127,13 @@ public sealed partial class DisplayChangeWatcher : IDisposable
                 return;
             }
 
-            if (IsBlockedDisplayName(args.Name))
+            if (DisplayNameRiskClassifier.IsBlocked(args.Name))
             {
                 Logger.LogError("[DisplayChangeWatcher] Display device blocked by risk policy classification");
                 return;
             }
 
-            if (IsSuspiciousDisplayName(args.Name))
+            if (DisplayNameRiskClassifier.IsSuspicious(args.Name))
             {
                 Logger.LogWarning("[DisplayChangeWatcher] Display device connected with suspicious classification (virtual/remote)");
             }
