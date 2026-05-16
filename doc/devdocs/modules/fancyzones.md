@@ -412,7 +412,7 @@ Apply gates in order:
 
 - **Gate A**: issue-targeted tests pass
 - **Gate B**: same-bucket regression suite pass
-- **Gate C**: cross-bucket smoke pass (at least one scenario per other bucket)
+- **Gate C**: cross-bucket smoke test passes (at least one scenario per other bucket)
 
 If a gate fails:
 
